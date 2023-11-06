@@ -1,0 +1,140 @@
+---
+title: "Ref/Stress Bug Sites Map (Version 1.1)"
+author: "Jason Hill"
+date: "`r Sys.Date()`"
+output: html_document
+
+---
+
+```{r setup, include=FALSE, message = FALSE, warning = FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+```
+
+```{r message = FALSE, warning = FALSE}
+library(readxl)
+library(tidyverse)
+library(tidyr)
+library(DT)
+library(sf)
+library(inlmisc)
+library(leaflet)
+
+# Set working directory
+
+setwd('C:/Users/ktq89598/Desktop/FishBugIBI/RefStressMap')
+```
+
+
+# Overview
+
+This script was built using R 4.0.2 (Taking Off Again). This markdown document contains the biologists comments/additional data review that enabled VDEQ to collapse the 8 categories (bestref, goodref, goodmodref, lowest stress, low stress, mod2stress, modstress, highest stress)  into 3 categories (reference = ref, intermediate = int, stress=str). In this version of the document,all sites have been reviewed by the biologist(s) and all "ref-pied" - have been identified. These are the site the biologist think are the best available sites in the piedmont of Virginia for where the sites are located. This version includes West Virginia DEP reference and stress sites in the Central Appalachians now. 
+
+
+
+********
+# Results
+
+The first step of the process is to load all the sites into R. You can look at the first few rows below, lot of spatial information included. Emma and Lucy will filling in gaps for NMDS run.
+
+```{r, warning=FALSE, allRef.1}
+# Load data
+BioMap <- read_excel('data/BioSitesAll.xlsx', sheet='MapFinal3')
+
+# No filtering needed on this sheet, but going with "Select" so no recoding
+#BioMap <- filter(RefStressData, BioRegion == "Coast")
+
+datatable(BioMap, rownames = F, escape= F, extensions = 'Buttons',
+                options = list(dom = 'Bift', scrollX= TRUE, scrollY = '300px',
+                               pageLength = nrow(BioMap), buttons=list('copy','colvis', 'excel')))
+
+#head(RefStressDataSelect)
+```
+
+# Map of Sites by Reference, Intermediate, and Stress Sites
+
+```{r category thresholds}
+RefStressDataSelect_sf <- mutate(BioMap, FIPS = as.factor(case_when(FIPS > 0 ~ 'FIPS2'))) %>%
+  st_as_sf(coords = c("Longitude", "Latitude"),  # make spatial layer using these columns
+           remove = F, # dont remove these lat/lon cols from df
+           crs = 4326) 
+
+
+Ref2 <- filter(RefStressDataSelect_sf, JRH_Calls == 'Ref' )
+RefPied <- filter(RefStressDataSelect_sf, JRH_Calls == 'Ref-Pied' )
+Int <- filter(RefStressDataSelect_sf, JRH_Calls == 'Int' )
+Str <- filter(RefStressDataSelect_sf, JRH_Calls == 'Str' )
+#ModerateStress2 <- filter(RefStressDataSelect_sf, StressAll == 'Moderate2 Stress' )
+#LowStress <- filter(RefStressDataSelect_sf, StressAll == 'zLow Stress' )
+#LowestStress <- filter(RefStressDataSelect_sf, StressAll == 'zLowest Stress' )
+
+```
+
+```{r, out.width = '100%'}
+#https://color-hex.org/color/3481eb to get color choices
+CreateWebMap(maps = c("Topo","Imagery","Hydrography"), collapsed = TRUE, 
+                   options= leafletOptions(zoomControl = TRUE,minZoom = 3, maxZoom = 20,
+                                           preferCanvas = TRUE)) %>%
+  setView(-79.1, 37.7, zoom=7)  %>% 
+  addCircleMarkers(data = Ref2,
+                   color='black', fillColor= '#2E74D4', fillOpacity = 0.5, stroke=0.1, radius = 4,
+                   weight = 2, group="Confirmed Ref Station",
+                   label = ~StationID, layerId = ~StationID,
+                   popup = leafpop::popupTable(Ref2, zcol=c('StationID'))) %>%
+  addCircleMarkers(data = RefPied,
+                   color='black', fillColor= '#7a49a5', fillOpacity = 0.5, stroke=0.1, radius = 4,
+                   weight = 2, group="Ref Best Available Piedmont",
+                   label = ~StationID, layerId = ~StationID,
+                   popup = leafpop::popupTable(RefPied, zcol=c('StationID'))) %>%
+  addCircleMarkers(data = Int,
+                   color='black', fillColor= '#f42c40', fillOpacity = 0.5, stroke=0.1, radius = 4,
+                   weight = 2, group="Intermediate Stress Site",
+                   label = ~StationID, layerId = ~StationID,
+                   popup = leafpop::popupTable(Int, zcol=c('StationID'))) %>%
+  addCircleMarkers(data = Str,
+                   color='black', fillColor= '#f4912c', fillOpacity = 0.5, stroke=0.1, radius = 4,
+                   weight = 2, group="Confirmed Stress Site",
+                   label = ~StationID, layerId = ~StationID,
+                   popup = leafpop::popupTable(Str, zcol=c('StationID'))) %>%
+    inlmisc::AddHomeButton(raster::extent(-83.89, -74.80, 36.54, 39.98), position = "topleft") %>%
+  addLayersControl(baseGroups=c("Topo","Imagery","Hydrography"),
+                   overlayGroups = c("Confirmed Ref Station","Ref Best Available Piedmont",
+                                     "Intermediate Stress Site","Confirmed Stress Site"),
+                   options=layersControlOptions(collapsed=T),
+                   position='topleft')
+```
+
+
+# Table of Count of Sites by Reference, Intermediate, and Stress Sites
+
+Below is table of Ref, Ref?, Ref-Pied?, Int, Str ecoregions (VDEQ data only). 
+
+
+```{r, message = FALSE, warning=FALSE, StressSummary}
+
+# Load data
+BioMapCount <- read_excel('data/BioSitesAll.xlsx', sheet='MapFinal2')
+
+VAEcoStressCount <- BioMapCount %>%  
+  group_by(US_L3NAME) %>%
+  filter(JRH_Calls == "Ref") %>% count(name = 'Ref') %>%
+  left_join(BioMapCount %>%  
+              group_by(US_L3NAME) %>%
+              filter(JRH_Calls == "Ref-Pied") %>% count(name = 'Ref-Pied') ) %>%
+  left_join(BioMapCount %>%  
+              group_by(US_L3NAME) %>%
+              filter(JRH_Calls == "Int") %>% count(name = 'Int') ) %>%
+  left_join(BioMapCount %>%  
+              group_by(US_L3NAME) %>%
+              filter(JRH_Calls == "Str") %>% count(name = 'Str') )
+
+
+#VAEcoStressCount[is.na(VAEcoStressCount)] <- 0
+
+
+datatable(VAEcoStressCount, rownames = F, escape= F, extensions = 'Buttons',
+                options = list(dom = 'Bift', scrollX= TRUE, scrollY = '300px',
+                               pageLength = nrow(VAEcoStressCount), buttons=list('copy','colvis', 'excel')))
+
+
+```
